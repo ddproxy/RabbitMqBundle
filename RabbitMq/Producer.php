@@ -2,6 +2,7 @@
 
 namespace OldSound\RabbitMqBundle\RabbitMq;
 
+use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
 
@@ -46,14 +47,21 @@ class Producer extends BaseAmqp implements ProducerInterface
             $this->setupFabric();
         }
 
-        $msg = new AMQPMessage((string) $msgBody, array_merge($this->getBasicProperties(), $additionalProperties));
+        $msg = new AMQPMessage((string)$msgBody, array_merge($this->getBasicProperties(), $additionalProperties));
 
         if (!empty($headers)) {
             $headersTable = new AMQPTable($headers);
             $msg->set('application_headers', $headersTable);
         }
 
-        $this->getChannel()->basic_publish($msg, $this->exchangeOptions['name'], (string)$routingKey);
+        try {
+            $this->getChannel()->basic_publish($msg, $this->exchangeOptions['name'], (string)$routingKey);
+        } catch (\Exception $exception) {
+            $this->logger->debug('Exception during AMQ publish caught, reconnecting publisher channel connection.');
+            $this->conn->reconnect();
+            $this->getChannel()->basic_publish($msg, $this->exchangeOptions['name'], (string)$routingKey);
+        }
+
         $this->logger->debug('AMQP message published', array(
             'amqp' => array(
                 'body' => $msgBody,
